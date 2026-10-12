@@ -63,6 +63,28 @@ def test_root_object_literal_preserves_property_constraints(keyword: str) -> Non
         adapter.validate_python(value)
 
 
+@pytest.mark.parametrize("keyword", ["const", "enum"])
+@pytest.mark.parametrize("additional_properties", [False, True])
+def test_root_object_literal_checks_before_default_insertion(
+    keyword: str, additional_properties: bool
+) -> None:
+    value = {"mode": "safe"}
+    schema = {
+        "type": "object",
+        "properties": {"mode": {"type": "string", "default": "safe"}},
+        "additionalProperties": additional_properties,
+    }
+    # Without a literal constraint, an omitted field still receives its default.
+    assert json_schema_to_type_adapter(schema).validate_python({}).mode == "safe"
+    schema[keyword] = value if keyword == "const" else [value]
+    adapter = json_schema_to_type_adapter(schema)
+    assert adapter.validate_python(value).mode == "safe"
+    with pytest.raises(ValidationError):
+        adapter.validate_python({})
+    with pytest.raises(ValidationError):
+        adapter.validate_json("{}")
+
+
 def test_root_object_empty_const() -> None:
     adapter = json_schema_to_type_adapter({"type": "object", "const": {}})
     assert adapter.validate_python({}) == {}
