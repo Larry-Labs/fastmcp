@@ -113,6 +113,69 @@ def test_root_object_literal_revalidates_generated_instance(
     assert adapter.validate_python(result) is result
 
 
+@pytest.mark.parametrize("additional_properties", [False, True])
+def test_object_literal_returns_cached_named_class(additional_properties: bool) -> None:
+    schema = {
+        "type": "object",
+        "properties": {"mode": {"type": "string"}},
+        "required": ["mode"],
+        "additionalProperties": additional_properties,
+        "const": {"mode": "safe"},
+    }
+    generated = json_schema_to_type(schema, name="Mode")
+    assert isinstance(generated, type)
+    assert generated.__name__ == "Mode"
+    assert json_schema_to_type(schema, name="Mode") is generated
+    if not additional_properties:
+        assert dataclasses.is_dataclass(generated)
+        assert [f.name for f in dataclasses.fields(generated)] == ["mode"]
+    adapter = TypeAdapter(generated)
+    assert isinstance(adapter.validate_python({"mode": "safe"}), generated)
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"mode": "other"})
+
+
+@pytest.mark.parametrize("keyword", ["const", "enum"])
+@pytest.mark.parametrize("properties", [False, True])
+def test_object_literal_distinguishes_boolean_from_number(
+    keyword: str, properties: bool
+) -> None:
+    value = {"items": [{"enabled": True}]}
+    schema: dict[str, Any] = {
+        "type": "object",
+        keyword: value if keyword == "const" else [value],
+    }
+    if properties:
+        schema["properties"] = {"items": {"type": "array"}}
+    adapter = json_schema_to_type_adapter(schema)
+    adapter.validate_python(value)
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"items": [{"enabled": 1}]})
+
+
+@pytest.mark.parametrize("properties", [False, True])
+@pytest.mark.parametrize("compatible", [False, True])
+def test_object_literal_enforces_const_and_enum(
+    properties: bool, compatible: bool
+) -> None:
+    value = {"mode": "safe"}
+    schema: dict[str, Any] = {
+        "type": "object",
+        "const": value,
+        "enum": [value] if compatible else [{"mode": "review"}],
+    }
+    if properties:
+        schema["properties"] = {"mode": {"type": "string"}}
+    adapter = json_schema_to_type_adapter(schema)
+    if compatible:
+        adapter.validate_python(value)
+    else:
+        with pytest.raises(ValidationError):
+            adapter.validate_python(value)
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"mode": "review"})
+
+
 @pytest.mark.parametrize("keyword", ["const", "enum"])
 @pytest.mark.parametrize("additional_properties", [False, True])
 def test_root_object_literal_revalidation_preserves_wire_representation(
